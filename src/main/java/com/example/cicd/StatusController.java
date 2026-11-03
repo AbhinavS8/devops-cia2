@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class StatusController {
 
-    @GetMapping("/")
-    public Map<String, String> home() {
+    @GetMapping("/api/info")
+    public Map<String, String> info() {
         return Map.of(
             "application", "DevOps CI/CD Task Tracker",
             "version", "1.0.0",
