@@ -19,14 +19,6 @@ public class StatusController {
         );
     }
 
-    @GetMapping("/api/tasks")
-    public List<Map<String, Object>> tasks() {
-        return List.of(
-            Map.of("id", 1, "title", "Build with Maven", "completed", true),
-            Map.of("id", 2, "title", "Deploy with Kubernetes", "completed", false)
-        );
-    }
-
     @GetMapping("/health")
     public Map<String, String> health() {
         return Map.of("status", "UP");
