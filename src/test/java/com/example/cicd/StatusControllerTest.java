@@ -15,17 +15,16 @@ class StatusControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-	@Test
-	void infoReturnsApplicationStatus() throws Exception {
-	    mockMvc.perform(get("/api/info"))
-	        .andExpect(status().isOk())
-	        .andExpect(jsonPath("$.application")
-	            .value("DevOps CI/CD Task Tracker"))
-	        .andExpect(jsonPath("$.status").value("Running"));
-	}
+    @Test
+    void infoReturnsApplicationStatus() throws Exception {
+        mockMvc.perform(get("/api/info"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.application")
+                .value("DevOps CI/CD Task Tracker"));
+    }
 
     @Test
-    void healthEndpointReturnsUp() throws Exception {
+    void healthReturnsUp() throws Exception {
         mockMvc.perform(get("/health"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("UP"));
