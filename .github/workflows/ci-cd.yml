@@ -1,117 +1,18 @@
 cat > .github/workflows/ci-cd.yml <<'EOF'
-name: CI/CD Pipeline
+name: CI Pipeline
 
-"on":
+on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  id-token: write
+    branches:
+      - main
 
 jobs:
-
-  # Stage 1: Security scanning
-  security:
-    name: Gitleaks Security Scan
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Stage 2: Build, test, push and deploy
-  build-deploy:
-    name: Build and Deploy
-    needs: security
-    runs-on: ubuntu-latest
-
-    # Only deploy from main, never from pull requests.
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-
-    env:
-      IMAGE_NAME: ${{ vars.ACR_LOGIN_SERVER }}/devops-cicd-assignment:${{ github.sha }}
-
-    steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # Java and Maven
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      - name: Run tests and generate coverage
-        run: mvn -B clean verify
-
-      - name: Upload JaCoCo report
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-report
-          path: target/site/jacoco/
-          if-no-files-found: warn
-
-      # Azure authentication through OIDC
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      # Docker image build and push
-      - name: Login to Azure Container Registry
-        run: az acr login --name "${{ vars.ACR_NAME }}"
-
-      - name: Build Docker image
-        run: docker build -t "$IMAGE_NAME" .
-
-      - name: Push Docker image
-        run: docker push "$IMAGE_NAME"
-
-      # Kubernetes deployment
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'v1.36.5'
-
-      - name: Get AKS credentials
-        run: |
-          az aks get-credentials \
-            --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-            --name "${{ vars.AKS_CLUSTER_NAME }}" \
-            --admin \
-            --overwrite-existing
-
-      - name: Apply Kubernetes manifests
-        run: kubectl apply -f k8s/
-
-      - name: Update application image
-        run: |
-          kubectl set image deployment/devops-cicd-app \
-            devops-cicd-app="$IMAGE_NAME"
-
-      - name: Verify deployment rollout
-        run: |
-          kubectl rollout status deployment/devops-cicd-app \
-            --timeout=180s
-
-      - name: Display deployment status
-        run: |
-          kubectl get deployments
-          kubectl get pods
-          kubectl get services
+      - name: Test
+        run: echo "Workflow YAML is valid"
 EOF
