@@ -10,21 +10,20 @@ pipeline {
 
     environment {
         // Azure configuration
+        AZURE_TENANT_ID       = '5beb351c-3fb8-418f-b612-fe36ace96ef3'
         AZURE_SUBSCRIPTION_ID = 'ca1fd788-971e-4cfe-a25c-8e4f4af20c0c'
 
         RESOURCE_GROUP = 'devops-cia2-rg'
-        ACR_NAME = 'devopscia2abhi2026'
+        ACR_NAME       = 'devopscia2abhi2026'
         ACR_LOGIN_SERVER = 'devopscia2abhi2026.azurecr.io'
-        AKS_CLUSTER = 'devops-cia2-aks'
-
-        // Kubernetes configuration
-        K8S_NAMESPACE = 'devops-cia2'
+        AKS_CLUSTER    = 'devops-cia2-aks'
 
         // Docker configuration
         IMAGE_REPOSITORY = 'devops-cicd-assignment'
 
-        // Isolate Azure CLI credentials within the workspace
+        // Jenkins-local configuration
         AZURE_CONFIG_DIR = "${WORKSPACE}/.azure"
+        KUBECONFIG       = "${WORKSPACE}/.kube/config"
     }
 
     stages {
@@ -70,56 +69,82 @@ pipeline {
 
         stage('Push to Azure Container Registry') {
             steps {
-                sh '''
-                    set -e
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'azure-service-principal',
+                        usernameVariable: 'AZURE_CLIENT_ID',
+                        passwordVariable: 'AZURE_CLIENT_SECRET'
+                    )
+                ]) {
+                    sh '''
+                        set -e
 
-                    az login --identity
+                        az login \
+                            --service-principal \
+                            --username "$AZURE_CLIENT_ID" \
+                            --password "$AZURE_CLIENT_SECRET" \
+                            --tenant "$AZURE_TENANT_ID"
 
-                    az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+                        az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
-                    az acr login --name "$ACR_NAME"
+                        az acr login --name "$ACR_NAME"
 
-                    docker push \
-                        "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
-                '''
+                        docker push \
+                            "$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
+
+                        az logout
+                    '''
+                }
             }
         }
 
         stage('Deploy to AKS') {
             steps {
                 withCredentials([
-                    file(
-                        credentialsId: 'aks-kubeconfig',
-                        variable: 'KUBECONFIG'
+                    usernamePassword(
+                        credentialsId: 'azure-service-principal',
+                        usernameVariable: 'AZURE_CLIENT_ID',
+                        passwordVariable: 'AZURE_CLIENT_SECRET'
                     )
                 ]) {
                     sh '''
                         set -e
 
-                        echo "Applying Kubernetes manifests..."
+                        az login \
+                            --service-principal \
+                            --username "$AZURE_CLIENT_ID" \
+                            --password "$AZURE_CLIENT_SECRET" \
+                            --tenant "$AZURE_TENANT_ID"
 
-                        kubectl apply \
-                            -n "$K8S_NAMESPACE" \
-                            -f k8s/
+                        az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
-                        echo "Updating application image..."
+                        mkdir -p "$(dirname "$KUBECONFIG")"
 
+                        az aks get-credentials \
+                            --resource-group "$RESOURCE_GROUP" \
+                            --name "$AKS_CLUSTER" \
+                            --admin \
+                            --file "$KUBECONFIG" \
+                            --overwrite-existing
+
+                        # Apply Kubernetes configuration
+                        kubectl apply -f k8s/
+
+                        # Update the application image
                         kubectl set image \
                             deployment/devops-cicd-app \
-                            devops-cicd-app="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG" \
-                            -n "$K8S_NAMESPACE"
+                            devops-cicd-app="$ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$IMAGE_TAG"
 
-                        echo "Waiting for rollout..."
-
+                        # Wait until the new deployment is ready
                         kubectl rollout status \
                             deployment/devops-cicd-app \
-                            -n "$K8S_NAMESPACE" \
                             --timeout=180s
 
-                        echo "Deployment status:"
-                        kubectl get deployments -n "$K8S_NAMESPACE"
-                        kubectl get pods -n "$K8S_NAMESPACE"
-                        kubectl get services -n "$K8S_NAMESPACE"
+                        # Display deployment and service status
+                        kubectl get pods
+                        kubectl get services
+
+                        az logout
                     '''
                 }
             }
@@ -128,18 +153,22 @@ pipeline {
 
     post {
         always {
+            // Publish JUnit results even if a later stage fails
             junit(
                 testResults: 'target/surefire-reports/*.xml',
                 allowEmptyResults: true
             )
 
+            // Preserve JaCoCo reports
             archiveArtifacts(
                 artifacts: 'target/site/jacoco/**',
                 allowEmptyArchive: true
             )
 
+            // Remove temporary Azure credentials and kubeconfig
             sh '''
                 rm -rf "$AZURE_CONFIG_DIR"
+                rm -rf "$(dirname "$KUBECONFIG")"
             '''
         }
 
